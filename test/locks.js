@@ -157,6 +157,44 @@ setup(function(db) {
     })
   })
 
+  test('when extending currently owned lock it should be successful', function(t) {
+    t.plan(3);
+
+    var lock = mongoDbLock(db, 'locks', 'extend-lock', { timeout : 3000 });
+
+    lock.acquire(function(err, code) {
+      db.collection('locks').findOne({name: 'extend-lock'}, function(err, doc) {
+        var originalExpiration = doc.expire;
+        lock.extend(code, 1000, function(err, ok) {
+          console.log(err, JSON.stringify(err));
+          t.ok(!err, 'There was no error when performing valid extension');
+          t.ok(ok, 'Valid extension was performed successfully');
+          db.collection('locks').findOne({name: 'extend-lock'}, function(err, doc) {
+            t.equal(doc.expire, originalExpiration + 1000);
+          });
+        });
+      });
+    });
+  });
+
+  test('when extending currently owned lock it should be successful', function(t) {
+    t.plan(4);
+
+    var lock = mongoDbLock(db, 'locks', 'extend-unacquired-lock', { timeout : 3000 });
+
+    lock.acquire(function(err, code) {
+      console.log('cde', code);
+      lock.release(code, function(err, ok) {
+        t.ok(!err, 'There was no error when releasing an acquired lock');
+        t.ok(ok, 'The lock was released successfully when already acquired');
+        lock.extend(code, 1000, function(err, ok) {
+          t.ok(!err, 'There was no error when extending in an invalid way');
+          t.ok(!ok, 'There invalid extend was not successful');
+        });
+      });
+    });
+  });
+
   test('db.close()', function(t) {
     t.pass('db.close()')
     db.close()

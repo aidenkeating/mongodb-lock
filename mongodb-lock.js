@@ -12,6 +12,8 @@
 
 var crypto = require('crypto')
 
+var DEFAULT_LOCK_TIMEOUT = 30000;
+
 // some helper functions
 function id() {
   return crypto.randomBytes(16).toString('hex')
@@ -38,7 +40,7 @@ function Lock(mongoDbClient, collectionName, lockName, opts) {
 
   self.col = mongoDbClient.collection(collectionName)
   self.name = lockName
-  self.timeout = opts.timeout || 30 * 1000 // default: 30 seconds
+  self.timeout = opts.timeout || DEFAULT_LOCK_TIMEOUT;
 }
 
 Lock.prototype.ensureIndexes = function(callback) {
@@ -88,7 +90,7 @@ Lock.prototype.acquire = function(callback) {
         return callback(err)
       }
 
-      var doc = docs[0]
+      var doc = docs.ops[0]
       callback(null, doc.code)
     })
   })
@@ -99,7 +101,7 @@ Lock.prototype.release = function release(code, callback) {
 
   var now = Date.now()
 
-  // expire this lock if it is still valid
+  // Expire this lock if it is still valid
   var q1 = {
     code    : code,
     expire  : { $gt : now },
@@ -114,7 +116,7 @@ Lock.prototype.release = function release(code, callback) {
   self.col.findAndModify(q1, undefined /* sort order */, u1, function(err, oldDoc) {
     if (err) return callback(err)
 
-    if ( !oldDoc ) {
+    if ( !oldDoc.value ) {
       // there was nothing to unlock
       return callback(null, false)
     }
@@ -122,4 +124,32 @@ Lock.prototype.release = function release(code, callback) {
     // unlocked correctly
     return callback(null, true)
   })
+}
+
+Lock.prototype.extend = function(code, extension, cb) {
+  var self = this;
+  var extension = extension || DEFAULT_LOCK_TIMEOUT;
+
+  var now = Date.now();
+
+  // Add extra time to lock if it is still valid.
+  var query = {
+    code    : code,
+    expire  : { $gt : now },
+    expired : { $exists : false },
+  }
+  var update = {
+    $inc : {
+      expire : extension
+    },
+  }
+  self.col.findAndModify(query, undefined, update, function(err, oldDoc) {
+    if (err) {
+      return cb(err);
+    }
+    if(! oldDoc.value) {
+      return cb(null, false);
+    }
+    return cb(null, true);
+  });
 }
